@@ -34,8 +34,7 @@ export async function POST(request) {
           }
         ],
         temperature: 0.7,
-        max_tokens: 500,
-        timeout: 55000,
+        max_tokens: 500
       });
 
       const response = completion.choices[0].message.content;
