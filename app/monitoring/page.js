@@ -700,6 +700,65 @@ export default function Monitoring() {
             />
           ))}
         </div>
+
+        <div className="bg-[#1c2333] rounded-lg p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-xl font-semibold">Query Analysis Details</h2>
+            <select 
+              className="bg-[#2a3447] text-gray-300 px-4 py-2 rounded-lg"
+              onChange={(e) => setFilterTopic(e.target.value)}
+            >
+              <option value="all">All Topics</option>
+              {topics.map(topic => (
+                <option key={topic.id} value={topic.name}>
+                  {topic.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-[#2a3447]">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[120px]">TOPIC</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[200px]">QUERY</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">RESPONSE</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[200px]">MENTIONED BRANDS</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#2a3447]">
+                {analysisResults?.results && Object.entries(analysisResults.results)
+                  .filter(([topicName, _]) => filterTopic === 'all' || topicName === filterTopic.toLowerCase())
+                  .map(([topicName, topicData]) => (
+                    topicData.queries.map((query, queryIndex) => (
+                      <tr key={`${topicName}-${queryIndex}`} className="hover:bg-[#2a3447]">
+                        <td className="px-4 py-3 text-sm text-blue-400">{topicName}</td>
+                        <td className="px-4 py-3 text-sm text-gray-300">{query.query}</td>
+                        <td className="px-4 py-3 text-sm text-gray-300">
+                          <div className="max-h-[100px] overflow-y-auto pr-4">
+                            {query.response}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {query.brandMentions.map((brand, index) => (
+                            brand.mentioned && (
+                              <span 
+                                key={index}
+                                className="inline-block bg-blue-600 bg-opacity-20 text-blue-400 px-2 py-1 rounded mr-2 mb-2"
+                              >
+                                {brand.name} ({brand.count})
+                              </span>
+                            )
+                          ))}
+                        </td>
+                      </tr>
+                    ))
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </main>
     </div>
   );

@@ -1,78 +1,61 @@
-import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { NextResponse } from 'next/server';
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
-function analyzeBrandMentions(text, brandsToTrack = []) {
-  console.log('Analyzing brands:', brandsToTrack);
-  
-  // Ensure brandsToTrack is an array
-  if (!Array.isArray(brandsToTrack)) {
-    console.error('brandsToTrack is not an array:', brandsToTrack);
-    brandsToTrack = [];
-  }
-  
-  const results = [];
-  
-  for (const brand of brandsToTrack) {
-    const mentions = [];
-    // Make brand matching case-insensitive
-    const regex = new RegExp(`\\b${brand}\\b`, 'gi');
-    let match;
-    
-    while ((match = regex.exec(text)) !== null) {
-      const position = match.index;
-      const totalLength = text.length;
-      const positionScore = 1 - (position / totalLength) * 0.8;
-      
-      mentions.push({
-        position,
-        positionScore
-      });
-    }
-    
-    results.push({
-      name: brand,  // Keep original case from setup
-      mentioned: mentions.length > 0,
-      count: mentions.length,
-      positionScore: mentions.length > 0 
-        ? mentions.reduce((sum, m) => sum + m.positionScore, 0) / mentions.length 
-        : 0,
-      positions: mentions.map(m => m.position)
-    });
-  }
-  
-  return results;
-}
+export const maxDuration = 300; // Set max duration to 300 seconds (5 minutes)
+export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
     const { query, brands } = await request.json();
     
-    if (!Array.isArray(brands)) {
-      throw new Error('brands must be an array');
-    }
+    console.log('Processing query:', query);
+    console.log('Checking brands:', brands);
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [{ role: "user", content: query }],
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant that analyzes text to identify mentions of specific brands."
+        },
+        {
+          role: "user",
+          content: query
+        }
+      ],
       temperature: 0.7,
-      max_tokens: 500
+      max_tokens: 500,
+      timeout: 180000, // 3 minute timeout
     });
 
-    const analysis = response.choices[0].message.content;
+    const response = completion.choices[0].message.content;
     
-    const brandMentions = analyzeBrandMentions(analysis, brands);
-
-    return NextResponse.json({
-      response: analysis,
-      brandMentions
+    // Process brand mentions
+    const brandMentions = brands.map(brand => {
+      const mentioned = response.toLowerCase().includes(brand.toLowerCase());
+      const count = mentioned ? 
+        (response.toLowerCase().match(new RegExp(brand.toLowerCase(), 'g')) || []).length : 0;
+      
+      return {
+        name: brand,
+        mentioned,
+        count,
+        positions: mentioned ? 
+          [...response.toLowerCase().matchAll(new RegExp(brand.toLowerCase(), 'g'))].map(m => m.index) : []
+      };
     });
 
+    return NextResponse.json({ response, brandMentions });
+    
   } catch (error) {
-    console.error('API error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('API Error:', error);
+    return NextResponse.json(
+      { error: 'An error occurred processing your request' },
+      { status: 500 }
+    );
   }
 } 
