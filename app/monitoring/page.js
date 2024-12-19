@@ -37,8 +37,10 @@ export default function Monitoring() {
   const [analysisHistory, setAnalysisHistory] = useState([]);
   const [monitoringData, setMonitoringData] = useState(null);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    setIsLoading(true);
     // Load topics from localStorage
     const storedTopics = localStorage.getItem('topicsWithQueries');
     if (storedTopics) {
@@ -56,6 +58,7 @@ export default function Monitoring() {
     if (storedResults) {
       setAnalysisResults(JSON.parse(storedResults));
     }
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -341,12 +344,16 @@ export default function Monitoring() {
     const calculateTopicVisibility = (brandName) => {
       if (!topicResults?.queries) return 0;
       
-      let totalScore = 0;
+      let mentionedQueries = 0;
       topicResults.queries.forEach(query => {
-        totalScore += calculateVisibilityScore(query, brandName);
+        const brandMention = query.brandMentions.find(m => m.name === brandName);
+        if (brandMention?.mentioned) {
+          mentionedQueries++;
+        }
       });
       
-      return ((totalScore / topicResults.queries.length) * 100).toFixed(1);
+      const score = (mentionedQueries / topicResults.queries.length) * 100;
+      return Number(score.toFixed(1));
     };
 
     // Count brand mentions
@@ -440,91 +447,81 @@ export default function Monitoring() {
 
   // First, let's structure our data correctly
   const prepareChartData = () => {
-    if (!analysisResults || !monitoringData?.topics) return [];
+    console.log('\n=== Preparing Chart Data ===');
+    
+    if (!analysisResults?.results) {
+      console.log('No analysis results found');
+      return [];
+    }
 
-    // Get visibility scores for each brand
-    const getBrandVisibility = (brandName) => {
-      if (!monitoringData?.topics) return 0;
-      
-      // Get scores from each topic
-      const topicScores = monitoringData.topics
-        .map(topic => {
-          const topicResults = analysisResults[topic.id];
-          if (!topicResults?.queries) return null;
-
-          // Count mentioned queries
-          const mentionedQueries = topicResults.queries.filter(query => 
-            query.brandMentions?.some(m => m.name === brandName && m.mentioned)
-          ).length;
-
-          // Calculate percentage for this topic
-          return (mentionedQueries / topicResults.queries.length) * 100;
-        })
-        .filter(score => score !== null);
-
-      // Calculate average across all topics
-      return topicScores.length > 0 
-        ? topicScores.reduce((sum, score) => sum + score, 0) / topicScores.length 
-        : 0;
-    };
-
-    // Get brands from setupData
     const setupData = localStorage.getItem('setupData');
     const brands = setupData ? JSON.parse(setupData).brands : ['Adidas', 'Nike', 'Salomon'];
+    
+    return brands.map(brand => {
+      console.log(`\nCalculating for ${brand}:`);
+      
+      // Get topic scores from the topic cards calculation
+      const topicScores = Object.entries(analysisResults.results).map(([topicId, topicData]) => {
+        const totalQueries = topicData.queries?.length || 0;
+        if (!totalQueries) return 0;
+        
+        // Use the same calculation as in TopicCard
+        const mentionedQueries = topicData.queries.filter(query => 
+          query.brandMentions?.some(m => m.name === brand && m.mentioned)
+        ).length;
+        
+        const score = (mentionedQueries / totalQueries) * 100;
+        console.log(`${topicId}: ${score.toFixed(1)}%`);
+        return score;
+      });
+      
+      // Calculate simple average
+      const averageScore = topicScores.reduce((sum, score) => sum + score, 0) / topicScores.length;
+      console.log(`${brand} average: ${averageScore.toFixed(1)}%`);
 
-    // Return dataset for each brand
-    return brands.map(brand => ({
-      label: brand,
-      data: [{ x: new Date(), y: getBrandVisibility(brand) }],
-      borderColor: getBrandColor(brand),
-      backgroundColor: getBrandColor(brand),
-      tension: 0.4,
-      pointRadius: 4,
-      pointHoverRadius: 6
-    }));
+      return {
+        label: brand,
+        data: [{
+          x: new Date(analysisResults.timestamp),
+          y: averageScore // This should now match the topic cards
+        }],
+        borderColor: getBrandColor(brand),
+        backgroundColor: getBrandColor(brand),
+        tension: 0.4,
+        pointRadius: 4,
+        pointHoverRadius: 6
+      };
+    });
   };
 
   const OverallVisibilityChart = () => {
     if (!monitoringData?.topics || !analysisResults) return null;
 
     const calculateAverageVisibility = (brandName) => {
-      console.log(`\n=== Calculating visibility for ${brandName} ===`);
+      console.log(`\n=== Overall Chart Calculation for ${brandName} ===`);
       
-      const topicScores = [];
-      
-      // Calculate score for each topic
-      Object.entries(analysisResults).forEach(([topicId, topicData]) => {
-        console.log(`\nTopic: ${topicId}`);
+      const topicScores = Object.entries(analysisResults.results).map(([topicId, topicData]) => {
+        if (!topicData?.queries) return 0;
         
-        if (!topicData?.queries?.length) {
-          console.log('No queries found');
-          return;
-        }
-        
-        // Count queries where brand is mentioned
         let mentionedQueries = 0;
         topicData.queries.forEach(query => {
-          if (query.brandMentions?.some(m => m.name === brandName && m.mentioned)) {
+          const brandMention = query.brandMentions.find(m => m.name === brandName);
+          if (brandMention?.mentioned) {
             mentionedQueries++;
           }
         });
         
         const score = (mentionedQueries / topicData.queries.length) * 100;
-        console.log(`Mentions: ${mentionedQueries}/${topicData.queries.length}`);
-        console.log(`Score: ${score}%`);
-        
-        topicScores.push(score);
+        console.log(`${topicId}:`);
+        console.log(`- Mentioned queries: ${mentionedQueries}`);
+        console.log(`- Total queries: ${topicData.queries.length}`);
+        console.log(`- Score: ${score.toFixed(1)}%`);
+        return Number(score.toFixed(1));
       });
-
-      // Calculate average of topic scores
-      const average = topicScores.length > 0
-        ? topicScores.reduce((sum, score) => sum + score, 0) / topicScores.length
-        : 0;
-
-      console.log('\nTopic scores:', topicScores);
-      console.log(`Average: ${average}%\n`);
       
-      return average.toFixed(1);
+      const average = topicScores.reduce((sum, score) => sum + score, 0) / topicScores.length;
+      console.log(`Final average: ${average.toFixed(1)}%\n`);
+      return Number(average.toFixed(1));
     };
 
     const data = {
@@ -644,19 +641,18 @@ export default function Monitoring() {
     console.log('Analysis data cleared');
   };
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0f1420] flex items-center justify-center">
+        <div className="text-white text-center">
+          <h1 className="text-2xl font-bold mb-2">Loading...</h1>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0f1420] text-white">
-      <nav className="p-4 border-b border-gray-800">
-        <div className="max-w-7xl mx-auto flex items-center">
-          <h1 className="text-xl font-bold">Seightly</h1>
-          <div className="ml-8 space-x-6">
-            <a href="/setup" className="text-gray-300 hover:text-white">Setup</a>
-            <a href="/topics" className="text-gray-300 hover:text-white">Topics & Queries</a>
-            <a href="/monitoring" className="text-gray-300 hover:text-white">Monitoring</a>
-          </div>
-        </div>
-      </nav>
-
       <main className="max-w-7xl mx-auto p-6">
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -682,110 +678,7 @@ export default function Monitoring() {
           </div>
         </div>
 
-        <div className="bg-[#1c2333] rounded-lg p-6 mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h2 className="text-xl font-semibold mb-1">Overall Visibility Score</h2>
-              <div className="text-gray-400">
-                {overallScore.toFixed(1)}% vs last week
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setChartTimeRange('1m')}
-                className={`px-3 py-1 rounded ${
-                  chartTimeRange === '1m' ? 'bg-blue-600' : 'bg-[#2a3447]'
-                }`}
-              >
-                1M
-              </button>
-              <button
-                onClick={() => setChartTimeRange('3m')}
-                className={`px-3 py-1 rounded ${
-                  chartTimeRange === '3m' ? 'bg-blue-600' : 'bg-[#2a3447]'
-                }`}
-              >
-                3M
-              </button>
-              <button
-                onClick={() => setChartTimeRange('6m')}
-                className={`px-3 py-1 rounded ${
-                  chartTimeRange === '6m' ? 'bg-blue-600' : 'bg-[#2a3447]'
-                }`}
-              >
-                6M
-              </button>
-              <button
-                onClick={() => setChartTimeRange('1y')}
-                className={`px-3 py-1 rounded ${
-                  chartTimeRange === '1y' ? 'bg-blue-600' : 'bg-[#2a3447]'
-                }`}
-              >
-                1Y
-              </button>
-            </div>
-          </div>
-
-          <div className="h-64">
-            <Line
-              data={{
-                datasets: prepareChartData()
-              }}
-              options={{
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                  intersect: false,
-                  mode: 'index'
-                },
-                scales: {
-                  y: {
-                    beginAtZero: true,
-                    max: 100,
-                    grid: {
-                      color: 'rgba(255, 255, 255, 0.1)',
-                    },
-                    ticks: {
-                      color: '#9ca3af',
-                      callback: value => `${value}%`
-                    },
-                  },
-                  x: {
-                    type: 'time',
-                    time: {
-                      unit: 'day',
-                      displayFormats: {
-                        day: 'MMM d'
-                      }
-                    },
-                    grid: {
-                      color: 'rgba(255, 255, 255, 0.1)',
-                    },
-                    ticks: {
-                      color: '#9ca3af',
-                    },
-                  },
-                },
-                plugins: {
-                  legend: {
-                    labels: {
-                      color: '#9ca3af',
-                    },
-                  },
-                  tooltip: {
-                    enabled: true,
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    titleColor: 'white',
-                    bodyColor: 'white',
-                    callbacks: {
-                      label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)}%`
-                    }
-                  }
-                },
-              }}
-            />
-          </div>
-        </div>
+        <OverallVisibilityChart />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           {!monitoringData && <div className="text-white">No monitoring data loaded</div>}
@@ -798,66 +691,6 @@ export default function Monitoring() {
               analysisResults={analysisResults}
             />
           ))}
-        </div>
-
-        <div className="bg-[#1c2333] rounded-lg p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-semibold">Query Analysis Details</h2>
-            <select 
-              className="bg-[#2a3447] text-gray-300 px-4 py-2 rounded-lg"
-              onChange={(e) => setFilterTopic(e.target.value)}
-            >
-              <option value="all">All Topics</option>
-              {topics.map(topic => (
-                <option key={topic.id} value={topic.name}>
-                  {topic.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-[#2a3447]">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[120px]">TOPIC</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[200px]">QUERY</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">RESPONSE</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[200px]">MENTIONED BRANDS</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#2a3447]">
-                {analysisResults?.results && Object.entries(analysisResults.results)
-                  // Filter by selected topic
-                  .filter(([topicName, _]) => filterTopic === 'all' || topicName === filterTopic.toLowerCase())
-                  .map(([topicName, topicData]) => (
-                    topicData.queries.map((query, queryIndex) => (
-                      <tr key={`${topicName}-${queryIndex}`} className="hover:bg-[#2a3447]">
-                        <td className="px-4 py-3 text-sm text-blue-400">{topicName}</td>
-                        <td className="px-4 py-3 text-sm text-gray-300">{query.query}</td>
-                        <td className="px-4 py-3 text-sm text-gray-300">
-                          <div className="max-h-[100px] overflow-y-auto pr-4">
-                            {query.response}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          {query.brandMentions.map((brand, index) => (
-                            brand.mentioned && (
-                              <span 
-                                key={index}
-                                className="inline-block bg-blue-600 bg-opacity-20 text-blue-400 px-2 py-1 rounded mr-2 mb-2"
-                              >
-                                {brand.name} ({brand.count})
-                              </span>
-                            )
-                          ))}
-                        </td>
-                      </tr>
-                    ))
-                  ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       </main>
     </div>

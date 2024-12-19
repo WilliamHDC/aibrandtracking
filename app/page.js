@@ -6,6 +6,8 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
+    // Add console.log to debug
+    console.log('Attempting to redirect...')
     router.push('/setup')
   }, [router])
 
