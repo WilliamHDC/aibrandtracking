@@ -498,30 +498,38 @@ export default function Monitoring() {
     if (!monitoringData?.topics || !analysisResults) return null;
 
     const calculateAverageVisibility = (brandName) => {
-      console.log(`\n=== Overall Chart Calculation for ${brandName} ===`);
-      
+      if (!analysisResults?.results) {
+        console.log('No analysis results available');
+        return 0;
+      }
+
+      // Get all topic scores
       const topicScores = Object.entries(analysisResults.results).map(([topicId, topicData]) => {
-        if (!topicData?.queries) return 0;
+        if (!topicData?.queries?.length) {
+          console.log(`No queries for topic ${topicId}`);
+          return 0;
+        }
         
-        let mentionedQueries = 0;
-        topicData.queries.forEach(query => {
-          const brandMention = query.brandMentions.find(m => m.name === brandName);
-          if (brandMention?.mentioned) {
-            mentionedQueries++;
-          }
-        });
-        
+        // Count queries where brand is mentioned
+        const mentionedQueries = topicData.queries.filter(query => 
+          query.brandMentions?.some(m => m.name === brandName && m.mentioned)
+        ).length;
+
+        // Calculate percentage for this topic
         const score = (mentionedQueries / topicData.queries.length) * 100;
-        console.log(`${topicId}:`);
-        console.log(`- Mentioned queries: ${mentionedQueries}`);
-        console.log(`- Total queries: ${topicData.queries.length}`);
-        console.log(`- Score: ${score.toFixed(1)}%`);
-        return Number(score.toFixed(1));
+        console.log(`${topicId} score for ${brandName}: ${score}%`);
+        return score;
       });
-      
+
+      // Calculate average of all topic scores
+      if (topicScores.length === 0) {
+        console.log('No topic scores available');
+        return 0;
+      }
+
       const average = topicScores.reduce((sum, score) => sum + score, 0) / topicScores.length;
-      console.log(`Final average: ${average.toFixed(1)}%\n`);
-      return Number(average.toFixed(1));
+      console.log(`${brandName} final average: ${average}%`);
+      return average;
     };
 
     const data = {
