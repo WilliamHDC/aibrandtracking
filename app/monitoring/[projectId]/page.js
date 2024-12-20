@@ -15,6 +15,7 @@ import {
 import 'chartjs-adapter-date-fns';
 import { format, subMonths } from 'date-fns';
 import { enUS } from 'date-fns/locale';
+import { useParams } from 'next/navigation';
 
 ChartJS.register(
   CategoryScale,
@@ -28,9 +29,10 @@ ChartJS.register(
 );
 
 export default function Monitoring() {
+  const { projectId } = useParams();
   const [chartTimeRange, setChartTimeRange] = useState('6m');
   const [topics, setTopics] = useState([]);
-  const [analysisResults, setAnalysisResults] = useState({});
+  const [analysisResults, setAnalysisResults] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [overallScore, setOverallScore] = useState(0);
   const [filterTopic, setFilterTopic] = useState('all');
@@ -38,79 +40,45 @@ export default function Monitoring() {
   const [monitoringData, setMonitoringData] = useState(null);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentProject, setCurrentProject] = useState(null);
 
   useEffect(() => {
     setIsLoading(true);
-    // Load topics from localStorage
-    const storedTopics = localStorage.getItem('topicsWithQueries');
-    if (storedTopics) {
-      const topicsData = JSON.parse(storedTopics);
-      const topicsArray = Object.entries(topicsData).map(([name, queries]) => ({
-        id: name.toLowerCase().replace(/\s+/g, '-'),
-        name,
-        queries
-      }));
-      setTopics(topicsArray);
+    console.log('Loading project data:', projectId);
+
+    try {
+      // Load project details
+      const projects = JSON.parse(localStorage.getItem('projects') || '[]');
+      const project = projects.find(p => p.id === projectId);
+      setCurrentProject(project);
+
+      // Load topics
+      const projectTopics = localStorage.getItem(`topics_${projectId}`);
+      if (projectTopics) {
+        const topicsData = JSON.parse(projectTopics);
+        const formattedTopics = Object.entries(topicsData).map(([name, queries]) => ({
+          id: name.toLowerCase().replace(/\s+/g, '-'),
+          name,
+          queries: Array.isArray(queries) ? queries : [queries]
+        }));
+        setTopics(formattedTopics);
+        setMonitoringData({ topics: formattedTopics });
+      }
+
+      // Load project-specific analysis results
+      const projectResults = localStorage.getItem(`results_${projectId}`);
+      if (projectResults) {
+        const results = JSON.parse(projectResults);
+        console.log('Loaded analysis results:', results);
+        setAnalysisResults(results);
+      }
+
+    } catch (error) {
+      console.error('Error loading project data:', error);
     }
 
-    // Load any existing analysis results
-    const storedResults = localStorage.getItem('analysisResults');
-    if (storedResults) {
-      setAnalysisResults(JSON.parse(storedResults));
-    }
     setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    const storedHistory = localStorage.getItem('analysisHistory');
-    if (storedHistory) {
-      setAnalysisHistory(JSON.parse(storedHistory));
-    }
-  }, []);
-
-  useEffect(() => {
-    console.log('Loading data from localStorage...');
-    
-    // Load topics
-    const storedTopics = localStorage.getItem('topicsWithQueries');
-    console.log('Stored topics:', storedTopics);
-    
-    if (storedTopics) {
-      try {
-        const topicsData = JSON.parse(storedTopics);
-        console.log('Parsed topics:', topicsData);
-        
-        // Convert the topics data into the format we need
-        const formattedData = {
-          topics: Object.entries(topicsData).map(([name, queries]) => ({
-            id: name.toLowerCase().replace(/\s+/g, '-'),
-            name,
-            queries
-          }))
-        };
-        
-        console.log('Formatted monitoring data:', formattedData);
-        setMonitoringData(formattedData);
-      } catch (error) {
-        console.error('Error parsing topics:', error);
-      }
-    }
-
-    // Load existing analysis results
-    const savedAnalysisResults = localStorage.getItem('analysisResults');
-    if (savedAnalysisResults) {
-      try {
-        setAnalysisResults(JSON.parse(savedAnalysisResults));
-      } catch (error) {
-        console.error('Error parsing analysis results:', error);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    console.log('Topics:', monitoringData?.topics);
-    console.log('Analysis Results:', analysisResults);
-  }, [monitoringData, analysisResults]);
+  }, [projectId]);
 
   const calculateTopicScore = (topicResults) => {
     let totalScore = 0;
@@ -162,28 +130,23 @@ export default function Monitoring() {
       return;
     }
     
-    // Default brands if none are configured
-    const defaultBrands = ['Adidas', 'Nike', 'Salomon'];
+    // Get brands from current project
+    const projects = JSON.parse(localStorage.getItem('projects') || '[]');
+    const currentProject = projects.find(p => p.id === projectId);
     
-    // Get brands from localStorage with better error handling
-    let brands = defaultBrands;
-    try {
-      const setupData = localStorage.getItem('setupData');
-      if (setupData) {
-        const parsedData = JSON.parse(setupData);
-        brands = parsedData?.brands || defaultBrands;
-      }
-      console.log('Brands to track:', brands);
-    } catch (error) {
-      console.error('Error parsing setupData:', error);
-      // Keep using default brands
+    if (!currentProject?.brands || currentProject.brands.length === 0) {
+      console.error('No brands found for project');
+      return;
     }
+    
+    const brands = currentProject.brands;
+    console.log('Brands to track:', brands);
     
     setIsAnalyzing(true);
     const results = {};
 
     try {
-      for (const topic of monitoringData.topics) {
+      for (const topic of topics) {
         console.log(`Analyzing topic: ${topic.name}`);
         results[topic.id] = {
           queries: []
@@ -199,7 +162,7 @@ export default function Monitoring() {
               },
               body: JSON.stringify({ 
                 query,
-                brands // Pass brands array
+                brands
               }),
             });
 
@@ -229,8 +192,24 @@ export default function Monitoring() {
         results: results
       };
 
+      // Save current results
       setAnalysisResults(analysisWithTimestamp);
-      localStorage.setItem('analysisResults', JSON.stringify(analysisWithTimestamp));
+      localStorage.setItem(`results_${projectId}`, JSON.stringify(analysisWithTimestamp));
+      
+      // Save to history
+      const historyKey = `history_${projectId}`;
+      const existingHistory = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      existingHistory.push(analysisWithTimestamp);
+      
+      // Keep only last 30 days of data
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const filteredHistory = existingHistory.filter(entry => 
+        new Date(entry.timestamp) >= thirtyDaysAgo
+      );
+      
+      // Save updated history
+      localStorage.setItem(historyKey, JSON.stringify(filteredHistory));
       
     } catch (error) {
       console.error('Analysis failed:', error);
@@ -337,39 +316,96 @@ export default function Monitoring() {
     return score;
   };
 
-  const TopicCard = ({ topic, monitoringData, analysisResults }) => {
+  const TopicCard = ({ topic, analysisResults }) => {
+    const [brands, setBrands] = useState([]);
+    const { projectId } = useParams();
+    const [comparisons, setComparisons] = useState({ day: null, week: null });
+    
+    useEffect(() => {
+      const projects = JSON.parse(localStorage.getItem('projects') || '[]');
+      const currentProject = projects.find(p => p.id === projectId);
+      if (currentProject?.brands) {
+        setBrands(currentProject.brands);
+      }
+    }, [projectId]);
+
+    useEffect(() => {
+      const historyKey = `history_${projectId}`;
+      const history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      
+      if (history.length && topicResults) {
+        const now = new Date(analysisResults.timestamp);
+        
+        // Calculate day comparison
+        const yesterdayData = history.find(entry => {
+          const entryDate = new Date(entry.timestamp);
+          const diffDays = (now - entryDate) / (1000 * 60 * 60 * 24);
+          return diffDays >= 1 && diffDays < 2;
+        });
+
+        // Calculate week comparison
+        const lastWeekData = history.find(entry => {
+          const entryDate = new Date(entry.timestamp);
+          const diffDays = (now - entryDate) / (1000 * 60 * 60 * 24);
+          return diffDays >= 7 && diffDays < 8;
+        });
+
+        const currentScore = calculateVisibility(brands[0]);
+        
+        setComparisons({
+          day: yesterdayData ? 
+            Number((currentScore - calculateVisibility(brands[0], yesterdayData.results?.[topic.id])).toFixed(1)) : 
+            null,
+          week: lastWeekData ? 
+            Number((currentScore - calculateVisibility(brands[0], lastWeekData.results?.[topic.id])).toFixed(1)) : 
+            null
+        });
+      }
+    }, [projectId, analysisResults, topic.id, brands]);
+
     const topicResults = analysisResults?.results?.[topic.id];
     const timestamp = analysisResults?.timestamp;
-    
-    const calculateTopicVisibility = (brandName) => {
+
+    // Calculate visibility score considering mention positions
+    const calculateVisibility = (brandName) => {
       if (!topicResults?.queries) return 0;
       
-      let mentionedQueries = 0;
+      let totalScore = 0;
+      const totalQueries = topicResults.queries.length;
+
       topicResults.queries.forEach(query => {
-        const brandMention = query.brandMentions.find(m => m.name === brandName);
-        if (brandMention?.mentioned) {
-          mentionedQueries++;
-        }
+        const brandMention = query.brandMentions?.find(m => m.name === brandName);
+        if (!brandMention?.mentioned || !brandMention.positions) return;
+
+        // Get the first position where the brand appears
+        const position = brandMention.brandPosition;
+        
+        // Apply graduated scoring based on position
+        if (position === 1) totalScore += 1.0;
+        else if (position === 2) totalScore += 0.75;
+        else if (position === 3) totalScore += 0.5;
+        else if (position === 4) totalScore += 0.25;
+        else totalScore += 0.1;
       });
-      
-      const score = (mentionedQueries / topicResults.queries.length) * 100;
-      return Number(score.toFixed(1));
+
+      // Round to 1 decimal place
+      return Math.round((totalScore / totalQueries * 100) * 10) / 10;
     };
 
-    // Count brand mentions
+    // Get brand mentions count
     const getBrandMentions = (brandName) => {
       if (!topicResults) return 0;
-      return topicResults.queries.reduce((count, query) => {
-        const mention = query.brandMentions.find(m => m.name === brandName);
+      return topicResults.queries?.reduce((count, query) => {
+        const mention = query.brandMentions?.find(m => m.name === brandName);
         return count + (mention?.count || 0);
-      }, 0);
+      }, 0) || 0;
     };
 
-    // Format the timestamp
+    // Format timestamp
     const formatTimestamp = (timestamp) => {
       if (!timestamp) return '';
-      const date = new Date(timestamp);
-      return date.toLocaleString('en-US', { 
+      return new Date(timestamp).toLocaleString('sv-SE', { 
+        timeZone: 'Europe/Stockholm',
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
@@ -377,53 +413,90 @@ export default function Monitoring() {
       });
     };
 
+    const calculateComparison = (brandName, daysAgo) => {
+      const historyKey = `history_${projectId}`;
+      const history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+      
+      if (!history.length) return null;
+
+      const now = new Date();
+      const compareDate = new Date(now.setDate(now.getDate() - daysAgo));
+      
+      // Find the closest previous entry
+      const previousEntry = history
+        .filter(entry => new Date(entry.timestamp) <= compareDate)
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+
+      if (!previousEntry) return null;
+
+      const currentScore = calculateVisibility(brandName);
+      const previousScore = calculateVisibility(brandName, previousEntry.results?.[topic.id]);
+      
+      return Number((currentScore - previousScore).toFixed(1));
+    };
+
     return (
       <div className="bg-[#1c2333] rounded-lg p-6">
-        <div className="flex justify-between items-start mb-6">
-          <h3 className="text-xl font-semibold text-white">{topic.name}</h3>
+        <div className="flex justify-between items-start mb-2">
+          <div>
+            <h3 className="text-2xl font-bold text-white mb-1">{topic.name}</h3>
+          </div>
           <span className="text-sm text-gray-400 bg-[#2a3447] px-3 py-1 rounded-full">
-            {topic.queries.length} queries
+            {topic.queries?.length || 0} queries
           </span>
         </div>
 
         {topicResults ? (
           <>
             <div className="mb-6">
-              <div className="text-5xl font-bold text-white mb-1">
-                {calculateTopicVisibility('Adidas')}%
+              <div className="text-6xl font-bold text-white mb-2">
+                {calculateVisibility(brands[0]).toFixed(1)}%
               </div>
-              <div className="flex items-center gap-2">
-                <div className="text-sm text-gray-400">visibility score</div>
+              <div className="flex items-center gap-2 text-gray-400">
+                {comparisons.day !== null && (
+                  <span className={`text-xs ${comparisons.day > 0 ? 'text-green-400' : comparisons.day < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {comparisons.day > 0 ? '+' : ''}{comparisons.day}% day
+                  </span>
+                )}
+                {comparisons.week !== null && (
+                  <span className={`text-xs ${comparisons.week > 0 ? 'text-green-400' : comparisons.week < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                    {comparisons.week > 0 ? '+' : ''}{comparisons.week}% week
+                  </span>
+                )}
                 {timestamp && (
-                  <div className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500">
                     • Updated {formatTimestamp(timestamp)}
-                  </div>
+                  </span>
                 )}
               </div>
             </div>
 
             <div className="space-y-4">
-              {['Adidas', 'Nike', 'Salomon'].map(brand => (
-                <div key={brand} className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <span className="text-gray-300">{brand}</span>
-                      <span className="text-emerald-400 text-sm">
-                        {getBrandMentions(brand)} mentions
+              {brands.map(brand => {
+                const visibility = calculateVisibility(brand);
+                const mentions = getBrandMentions(brand);
+                return (
+                  <div key={brand} className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-300">{brand}</span>
+                        <span className="text-emerald-400 text-sm">
+                          {mentions} mentions
+                        </span>
+                      </div>
+                      <span className="text-gray-300">
+                        {visibility.toFixed(1)}%
                       </span>
                     </div>
-                    <span className="text-gray-300">
-                      {calculateTopicVisibility(brand)}%
-                    </span>
+                    <div className="h-2 w-full bg-[#2a3447] rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-blue-600 rounded-full transition-all duration-500"
+                        style={{ width: `${visibility}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 w-full bg-[#2a3447] rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-blue-600 rounded-full transition-all duration-500"
-                      style={{ width: `${calculateTopicVisibility(brand)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         ) : (
@@ -436,13 +509,24 @@ export default function Monitoring() {
   };
 
   // Helper function to get brand color
-  const getBrandColor = (brand) => {
-    const colors = {
-      'adidas': '#4ade80',  // green
-      'nike': '#4ade80',    // green
-      'salomon': '#a855f7'  // purple
-    };
-    return colors[brand.toLowerCase()] || '#60a5fa';
+  const getBrandColor = (brand, isPrimaryBrand = false) => {
+    // If it's the primary brand (your own brand)
+    if (isPrimaryBrand) {
+      return '#60A5FA'; // blue-400
+    }
+
+    // For competitors, rotate between these colors
+    const competitorColors = [
+      '#F87171', // red-400
+      '#34D399', // emerald-400
+      '#A78BFA', // violet-400
+      '#FBBF24', // amber-400
+      '#EC4899'  // pink-400
+    ];
+
+    // Hash the brand name to get a consistent color
+    const index = brand.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return competitorColors[index % competitorColors.length];
   };
 
   // First, let's structure our data correctly
@@ -495,88 +579,102 @@ export default function Monitoring() {
   };
 
   const OverallVisibilityChart = () => {
-    if (!monitoringData?.topics || !analysisResults) return null;
+    const [brands, setBrands] = useState([]);
+    const { projectId } = useParams();
+    
+    useEffect(() => {
+      // Get brands from current project
+      const projects = JSON.parse(localStorage.getItem('projects') || '[]');
+      const currentProject = projects.find(p => p.id === projectId);
+      if (currentProject?.brands) {
+        setBrands(currentProject.brands);
+      }
+    }, [projectId]);
+
+    if (!monitoringData?.topics || !analysisResults?.timestamp || !brands.length) return null;
 
     const calculateAverageVisibility = (brandName) => {
-      if (!analysisResults?.results) {
-        console.log('No analysis results available');
-        return 0;
-      }
+      if (!analysisResults?.results) return 0;
 
-      // Get all topic scores
+      // Get scores from all topics
       const topicScores = Object.entries(analysisResults.results).map(([topicId, topicData]) => {
-        if (!topicData?.queries?.length) {
-          console.log(`No queries for topic ${topicId}`);
-          return 0;
-        }
+        if (!topicData?.queries) return 0;
         
-        // Count queries where brand is mentioned
-        const mentionedQueries = topicData.queries.filter(query => 
-          query.brandMentions?.some(m => m.name === brandName && m.mentioned)
-        ).length;
+        let totalScore = 0;
+        const totalQueries = topicData.queries.length;
 
-        // Calculate percentage for this topic
-        const score = (mentionedQueries / topicData.queries.length) * 100;
-        console.log(`${topicId} score for ${brandName}: ${score}%`);
-        return score;
+        topicData.queries.forEach(query => {
+          const brandMention = query.brandMentions?.find(m => m.name === brandName);
+          if (!brandMention?.mentioned || !brandMention.brandPosition === undefined) return;
+
+          const position = brandMention.brandPosition;
+          if (position === 1) totalScore += 1.0;
+          else if (position === 2) totalScore += 0.75;
+          else if (position === 3) totalScore += 0.5;
+          else if (position === 4) totalScore += 0.25;
+          else totalScore += 0.1;
+        });
+
+        return Math.round((totalScore / totalQueries * 100) * 10) / 10;
       });
 
       // Calculate average of all topic scores
-      if (topicScores.length === 0) {
-        console.log('No topic scores available');
-        return 0;
-      }
-
-      const average = topicScores.reduce((sum, score) => sum + score, 0) / topicScores.length;
-      console.log(`${brandName} final average: ${average}%`);
-      return average;
+      const validScores = topicScores.filter(score => score > 0);
+      return validScores.length > 0 
+        ? Number((validScores.reduce((sum, score) => sum + score, 0) / validScores.length).toFixed(1))
+        : 0;
     };
 
     const data = {
-      labels: ['Dec 18'],
-      datasets: [
-        {
-          label: 'Adidas',
-          data: [calculateAverageVisibility('Adidas')],
-          borderColor: '#4ade80',
-          backgroundColor: '#4ade80',
+      labels: [format(new Date(analysisResults?.timestamp || new Date()), 'MMM dd')],
+      datasets: brands.map(brand => {
+        const isPrimaryBrand = brand === currentProject?.brand;
+        return {
+          label: brand,
+          data: [calculateAverageVisibility(brand)],
+          borderColor: getBrandColor(brand, isPrimaryBrand),
+          backgroundColor: getBrandColor(brand, isPrimaryBrand),
           tension: 0.4,
           pointRadius: 4,
-          pointHoverRadius: 6
-        },
-        {
-          label: 'Nike',
-          data: [calculateAverageVisibility('Nike')],
-          borderColor: '#3b82f6',
-          backgroundColor: '#3b82f6',
-          tension: 0.4,
-          pointRadius: 4,
-          pointHoverRadius: 6
-        },
-        {
-          label: 'Salomon',
-          data: [calculateAverageVisibility('Salomon')],
-          borderColor: '#a855f7',
-          backgroundColor: '#a855f7',
-          tension: 0.4,
-          pointRadius: 4,
-          pointHoverRadius: 6
-        }
-      ]
+          pointHoverRadius: 6,
+          // Make primary brand line thicker
+          borderWidth: isPrimaryBrand ? 3 : 2,
+          // Optional: Add dashed lines for competitors
+          borderDash: isPrimaryBrand ? [] : [5, 5]
+        };
+      })
+    };
+
+    const formatTimestamp = (timestamp) => {
+      if (!timestamp) return '';
+      return new Date(timestamp).toLocaleString('sv-SE', { 
+        timeZone: 'Europe/Stockholm',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
     };
 
     return (
       <div className="bg-[#1c2333] rounded-lg p-6 mb-8">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-start mb-6">
           <div>
             <h2 className="text-xl font-semibold mb-1">Overall Visibility Score</h2>
             <div className="text-gray-400">0.0% vs last week</div>
           </div>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 rounded bg-[#2a3447]">1M</button>
-            <button className="px-3 py-1 rounded bg-[#2a3447]">3M</button>
-            <button className="px-3 py-1 rounded bg-blue-600">6M</button>
-            <button className="px-3 py-1 rounded bg-[#2a3447]">1Y</button>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex gap-2">
+              <button className="px-3 py-1 rounded bg-[#2a3447]">1M</button>
+              <button className="px-3 py-1 rounded bg-[#2a3447]">3M</button>
+              <button className="px-3 py-1 rounded bg-blue-600">6M</button>
+              <button className="px-3 py-1 rounded bg-[#2a3447]">1Y</button>
+            </div>
+            {analysisResults?.timestamp && (
+              <div className="text-xs text-gray-500">
+                Last updated {formatTimestamp(analysisResults.timestamp)}
+              </div>
+            )}
           </div>
         </div>
         <div className="h-64">
@@ -637,16 +735,16 @@ export default function Monitoring() {
         <TopicCard 
           key={topic.id} 
           topic={topic}
-          monitoringData={monitoringData}
           analysisResults={analysisResults}
         />
       ));
   };
 
   const clearAnalysisData = () => {
-    localStorage.removeItem('analysisResults');
+    localStorage.removeItem(`results_${projectId}`);
+    localStorage.removeItem(`history_${projectId}`);
     setAnalysisResults({});
-    console.log('Analysis data cleared');
+    console.log('Analysis data and history cleared for project:', projectId);
   };
 
   if (isLoading) {
@@ -686,16 +784,18 @@ export default function Monitoring() {
           </div>
         </div>
 
-        <OverallVisibilityChart />
+        <OverallVisibilityChart 
+          projectId={projectId}
+          analysisResults={analysisResults}
+          monitoringData={monitoringData}
+        />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          {!monitoringData && <div className="text-white">No monitoring data loaded</div>}
-          {monitoringData && !monitoringData.topics && <div className="text-white">No topics found in data</div>}
-          {monitoringData?.topics?.map(topic => (
+          {topics.map(topic => (
             <TopicCard
               key={topic.id}
               topic={topic}
-              monitoringData={monitoringData}
+              projectId={projectId}
               analysisResults={analysisResults}
             />
           ))}
@@ -710,7 +810,7 @@ export default function Monitoring() {
             >
               <option value="all">All Topics</option>
               {topics.map(topic => (
-                <option key={topic.id} value={topic.name}>
+                <option key={topic.id} value={topic.id}>
                   {topic.name}
                 </option>
               ))}
@@ -725,15 +825,18 @@ export default function Monitoring() {
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[200px]">QUERY</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">RESPONSE</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[200px]">MENTIONED BRANDS</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-300 w-[150px]">BRAND POSITION</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2a3447]">
                 {analysisResults?.results && Object.entries(analysisResults.results)
-                  .filter(([topicName, _]) => filterTopic === 'all' || topicName === filterTopic.toLowerCase())
-                  .map(([topicName, topicData]) => (
-                    topicData.queries.map((query, queryIndex) => (
-                      <tr key={`${topicName}-${queryIndex}`} className="hover:bg-[#2a3447]">
-                        <td className="px-4 py-3 text-sm text-blue-400">{topicName}</td>
+                  .filter(([topicId, _]) => filterTopic === 'all' || topicId === filterTopic)
+                  .map(([topicId, topicData]) => {
+                    // Find topic name from topics array
+                    const topic = topics.find(t => t.id === topicId);
+                    return topicData.queries.map((query, queryIndex) => (
+                      <tr key={`${topicId}-${queryIndex}`} className="hover:bg-[#2a3447]">
+                        <td className="px-4 py-3 text-sm text-blue-400">{topic?.name || topicId}</td>
                         <td className="px-4 py-3 text-sm text-gray-300">{query.query}</td>
                         <td className="px-4 py-3 text-sm text-gray-300">
                           <div className="max-h-[100px] overflow-y-auto pr-4">
@@ -741,20 +844,34 @@ export default function Monitoring() {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          {query.brandMentions.map((brand, index) => (
-                            brand.mentioned && (
+                          {query.brandMentions
+                            .filter(brand => brand.mentioned)
+                            .map((brand, index) => (
                               <span 
                                 key={index}
                                 className="inline-block bg-blue-600 bg-opacity-20 text-blue-400 px-2 py-1 rounded mr-2 mb-2"
                               >
-                                {brand.name} ({brand.count})
+                                {brand.name}
                               </span>
-                            )
-                          ))}
+                            ))}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {(() => {
+                            const primaryBrand = query.brandMentions
+                              .find(brand => brand.name === currentProject?.brand && brand.mentioned);
+                            
+                            return primaryBrand ? (
+                              <span className="inline-block bg-blue-600 bg-opacity-20 text-blue-400 px-2 py-1 rounded">
+                                #{primaryBrand.brandPosition}
+                              </span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            );
+                          })()}
                         </td>
                       </tr>
-                    ))
-                  ))}
+                    ));
+                  })}
               </tbody>
             </table>
           </div>

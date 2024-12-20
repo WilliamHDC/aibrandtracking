@@ -1,20 +1,32 @@
 "use client"
 import { useState, useEffect } from 'react'
+import { useParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 
 export default function Topics() {
+  const { projectId } = useParams();
+  const router = useRouter();
   const [queries, setQueries] = useState('')
   const [topicsWithQueries, setTopicsWithQueries] = useState({})
   const [selectedTopic, setSelectedTopic] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [newTopicName, setNewTopicName] = useState('')
+  const [mounted, setMounted] = useState(false);
+  const [project, setProject] = useState(null);
 
   useEffect(() => {
-    // Load existing topics from localStorage
-    const stored = localStorage.getItem('topicsWithQueries')
-    if (stored) {
-      setTopicsWithQueries(JSON.parse(stored))
+    setMounted(true);
+    // Load project data
+    const projects = JSON.parse(localStorage.getItem('projects') || '[]');
+    const currentProject = projects.find(p => p.id === projectId);
+    setProject(currentProject);
+
+    // Load existing topics for this project
+    const projectTopics = localStorage.getItem(`topics_${projectId}`);
+    if (projectTopics) {
+      setTopicsWithQueries(JSON.parse(projectTopics));
     }
-  }, [])
+  }, [projectId]);
 
   const handleAddTopic = () => {
     if (newTopicName.trim()) {
@@ -66,6 +78,37 @@ export default function Topics() {
   const handleTopicClick = (topic) => {
     console.log('Selected topic:', topic);
     setSelectedTopic(topic);
+  };
+
+  const handleContinue = () => {
+    // Check if we have any topics
+    if (!topicsWithQueries || Object.keys(topicsWithQueries).length === 0) {
+      console.error('No topics to save');
+      return;
+    }
+
+    try {
+      // Save topics with project ID
+      localStorage.setItem(`topics_${projectId}`, JSON.stringify(topicsWithQueries));
+
+      // Update project in projects list
+      const projects = JSON.parse(localStorage.getItem('projects') || '[]');
+      const updatedProjects = projects.map(p => {
+        if (p.id === projectId) {
+          return { 
+            ...p, 
+            topics: Object.keys(topicsWithQueries)
+          };
+        }
+        return p;
+      });
+      localStorage.setItem('projects', JSON.stringify(updatedProjects));
+
+      // Navigate to monitoring
+      router.push(`/monitoring/${projectId}`);
+    } catch (error) {
+      console.error('Error saving topics:', error);
+    }
   };
 
   return (
@@ -186,7 +229,7 @@ export default function Topics() {
 
         <div className="flex justify-end mt-6">
           <button
-            onClick={() => window.location.href = '/monitoring'}
+            onClick={handleContinue}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
           >
             Next →

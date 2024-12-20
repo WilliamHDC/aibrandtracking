@@ -8,66 +8,66 @@ const openai = new OpenAI({
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-export async function POST(request) {
+export async function POST(req) {
   try {
-    const { query, brands } = await request.json();
-    
-    console.log('Processing query:', query);
-    console.log('Checking brands:', brands);
-    console.log('OpenAI API Key exists:', !!process.env.OPENAI_API_KEY);
+    const { query, brands } = await req.json();
 
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OpenAI API key is not configured');
-    }
+    const completion = await openai.chat.completions.create({
+      messages: [
+        { role: "system", content: "You are a helpful assistant that analyzes text." },
+        { role: "user", content: query }
+      ],
+      model: "gpt-3.5-turbo",
+    });
 
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "system",
-            content: "You are a helpful assistant that analyzes text to identify mentions of specific brands."
-          },
-          {
-            role: "user",
-            content: query
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
-      });
+    const response = completion.choices[0].message.content;
 
-      const response = completion.choices[0].message.content;
+    // Process brand mentions with relative positioning
+    const brandMentions = brands.map(brand => {
+      const mentions = [];
+      const regex = new RegExp(`\\b${brand}\\b`, 'gi');
+      let match;
       
-      const brandMentions = brands.map(brand => {
-        const mentioned = response.toLowerCase().includes(brand.toLowerCase());
-        const count = mentioned ? 
-          (response.toLowerCase().match(new RegExp(brand.toLowerCase(), 'g')) || []).length : 0;
-        
+      // Find all occurrences of the brand
+      while ((match = regex.exec(response)) !== null) {
+        mentions.push(match.index);
+      }
+
+      return {
+        name: brand,
+        mentioned: mentions.length > 0,
+        count: mentions.length,
+        positions: mentions,
+        brandPosition: null  // We'll fill this in next
+      };
+    });
+
+    // Sort all brand occurrences to determine relative positions
+    const allBrandOccurrences = brandMentions
+      .filter(b => b.mentioned)
+      .map(brand => {
+        // Take only the first occurrence for each brand
         return {
-          name: brand,
-          mentioned,
-          count,
-          positions: mentioned ? 
-            [...response.toLowerCase().matchAll(new RegExp(brand.toLowerCase(), 'g'))].map(m => m.index) : []
+          name: brand.name,
+          position: brand.positions[0]
         };
-      });
+      })
+      .sort((a, b) => a.position - b.position);
 
-      return NextResponse.json({ response, brandMentions });
-      
-    } catch (openaiError) {
-      console.error('OpenAI API Error:', openaiError);
-      return NextResponse.json(
-        { error: `OpenAI API Error: ${openaiError.message}` },
-        { status: 500 }
-      );
-    }
-    
+    // Assign relative brand positions
+    allBrandOccurrences.forEach((occurrence, index) => {
+      const brandMention = brandMentions.find(b => b.name === occurrence.name);
+      if (brandMention) {
+        brandMention.brandPosition = index + 1; // 1-based position
+      }
+    });
+
+    return NextResponse.json({
+      response,
+      brandMentions
+    });
   } catch (error) {
-    console.error('Request processing error:', error);
-    return NextResponse.json(
-      { error: `Request processing error: ${error.message}` },
-      { status: 500 }
-    );
+    console.error('Analysis error:', error);
+    return NextResponse.json({ error: 'Analysis failed' }, { status: 500 });
   }
 } 
