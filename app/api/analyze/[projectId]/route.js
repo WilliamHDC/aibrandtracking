@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
+import { db } from '../../../../lib/db.js';
+import { analysisResults } from '../../../../lib/schema.js';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -11,6 +13,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(req) {
   try {
     const { query, brands } = await req.json();
+    console.log('Analyzing query:', query);
+    console.log('Tracking brands:', brands);
 
     const completion = await openai.chat.completions.create({
       messages: [
@@ -28,7 +32,6 @@ export async function POST(req) {
       const regex = new RegExp(`\\b${brand}\\b`, 'gi');
       let match;
       
-      // Find all occurrences of the brand
       while ((match = regex.exec(response)) !== null) {
         mentions.push(match.index);
       }
@@ -45,20 +48,17 @@ export async function POST(req) {
     // Sort all brand occurrences to determine relative positions
     const allBrandOccurrences = brandMentions
       .filter(b => b.mentioned)
-      .map(brand => {
-        // Take only the first occurrence for each brand
-        return {
-          name: brand.name,
-          position: brand.positions[0]
-        };
-      })
+      .map(brand => ({
+        name: brand.name,
+        position: brand.positions[0]
+      }))
       .sort((a, b) => a.position - b.position);
 
     // Assign relative brand positions
     allBrandOccurrences.forEach((occurrence, index) => {
       const brandMention = brandMentions.find(b => b.name === occurrence.name);
       if (brandMention) {
-        brandMention.brandPosition = index + 1; // 1-based position
+        brandMention.brandPosition = index + 1;
       }
     });
 
@@ -70,4 +70,4 @@ export async function POST(req) {
     console.error('Analysis error:', error);
     return NextResponse.json({ error: 'Analysis failed' }, { status: 500 });
   }
-} 
+}

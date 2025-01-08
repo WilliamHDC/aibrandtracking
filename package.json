@@ -1,32 +1,38 @@
 {
-  "name": "seightly",
-  "version": "1.0.0",
+  "name": "your-project-name",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "migrate": "node migrate.js",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
     "chart.js": "^4.4.1",
     "chartjs-adapter-date-fns": "^3.0.0",
     "date-fns": "^4.1.0",
-    "next": "^14.2.20",
-    "openai": "^4.0.0",
-    "react": "18.2.0",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.38.2",
+    "next": "14.1.0",
+    "openai": "^4.77.0",
+    "pg": "^8.13.1",
+    "react": "^18",
     "react-chartjs-2": "^5.2.0",
-    "react-dom": "18.2.0"
+    "react-dom": "^18",
+    "tailwindcss": "^3.3.0",
+    "uuid": "^11.0.3"
   },
   "devDependencies": {
-    "@eslint/config-array": "^0.19.1",
-    "@eslint/object-schema": "^2.1.5",
-    "@next/eslint-plugin-next": "14.0.4",
-    "@types/react": "19.0.2",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.55.0",
-    "eslint-config-next": "14.0.4",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0"
+    "autoprefixer": "^10.0.1",
+    "drizzle-kit": "^0.30.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.1.0",
+    "postcss": "^8"
   }
 }

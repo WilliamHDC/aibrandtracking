@@ -12,19 +12,40 @@ export default function Setup() {
   const [isExistingProject, setIsExistingProject] = useState(false)
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Load existing project data
-    const projects = JSON.parse(localStorage.getItem('projects') || '[]')
-    const currentProject = projects.find(p => p.id === projectId)
+    const fetchProject = async () => {
+      try {
+        setIsLoading(true);
+        console.log('Fetching project:', projectId);
+        
+        if (!projectId.toString().startsWith(Date.now().toString().slice(0, -4))) {
+          const response = await fetch(`/api/projects/${projectId}`);
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Found existing project:', data);
+            setIsExistingProject(true);
+            setProjectName(data.name);
+            setBrand(data.brand);
+            setCompetitors(data.competitors || []);
+          }
+        } else {
+          console.log('New project setup - skipping fetch');
+          setIsExistingProject(false);
+        }
+      } catch (error) {
+        console.error('Error fetching project:', error);
+        if (!projectId.toString().startsWith(Date.now().toString().slice(0, -4))) {
+          console.error('Error on existing project:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
-    if (currentProject) {
-      setIsExistingProject(true)
-      setProjectName(currentProject.name)
-      setBrand(currentProject.brand)
-      setCompetitors(currentProject.competitors || [])
-    }
-  }, [projectId])
+    fetchProject();
+  }, [projectId]);
 
   const handleAddCompetitor = () => {
     if (competitor.trim() && !competitors.includes(competitor.trim())) {
@@ -56,47 +77,49 @@ export default function Setup() {
     setTouched(prev => ({ ...prev, [field]: true }))
   }
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     
-    // Mark all fields as touched
     setTouched({
       projectName: true,
       brand: true
-    })
+    });
 
     if (!validateForm()) {
-      return
+      return;
     }
 
-    const projects = JSON.parse(localStorage.getItem('projects') || '[]')
-    
-    if (isExistingProject) {
-      // Update only competitors for existing project
-      const updatedProjects = projects.map(p => {
-        if (p.id === projectId) {
-          return { 
-            ...p, 
-            competitors,
-            brands: [brand, ...competitors]
-          }
-        }
-        return p
-      })
-      localStorage.setItem('projects', JSON.stringify(updatedProjects))
-    } else {
-      // Create new project
-      const newProject = {
-        id: projectId,
-        name: projectName,
-        brand,
-        competitors,
-        brands: [brand, ...competitors]
+    const projectData = {
+      id: projectId,
+      name: projectName,
+      brand,
+      competitors,
+      brands: [brand, ...competitors]
+    };
+
+    try {
+      const method = isExistingProject ? 'PUT' : 'POST';
+      const response = await fetch('/api/projects', {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(projectData),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save project');
       }
-      localStorage.setItem('projects', JSON.stringify([...projects, newProject]))
-    }
 
-    router.push(`/topics/${projectId}`)
+      router.push(`/topics/${projectId}`);
+    } catch (error) {
+      console.error('Error saving project:', error);
+      alert('Failed to save project. Please try again.');
+    }
+  };
+
+  if (isLoading) {
+    return <div className="min-h-screen bg-[#141b2d] text-white p-8">Loading...</div>;
   }
 
   return (
@@ -196,5 +219,5 @@ export default function Setup() {
         </form>
       </main>
     </div>
-  )
+  );
 }
