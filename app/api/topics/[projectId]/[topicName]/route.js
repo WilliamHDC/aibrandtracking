@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { topics } from '@/lib/schema';
+import { db } from '../../../../../../lib/db';
+import { topics } from '../../../../../../lib/schema';
 
 // DELETE a topic
 export async function DELETE(req, { params }) {
