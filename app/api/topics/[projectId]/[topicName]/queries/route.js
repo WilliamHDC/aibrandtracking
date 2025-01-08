@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { db } from '@/lib/db';
 import { topics } from '@/lib/schema';
 
 // POST to add new queries to a topic
