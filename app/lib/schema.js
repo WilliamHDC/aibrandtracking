@@ -1,9 +1,32 @@
-import { pgTable, text, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, serial } from 'drizzle-orm/pg-core';
 
-export const topics = pgTable('topics', {
+// Update projects table to match existing structure
+export const projects = pgTable('projects', {
   id: text('id').primaryKey(),
-  projectId: text('project_id').notNull(),
   name: text('name').notNull(),
-  queries: jsonb('queries').$type<string[]>(),
-  createdAt: timestamp('created_at').defaultNow()
+  description: text('description'),
+  brand: text('brand'),
+  competitors: jsonb('competitors'),
+  brands: jsonb('brands'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()
 });
+
+// Update topics table
+export const topics = pgTable('topics', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  projectId: text('project_id').references(() => projects.id),
+  queries: jsonb('queries').default([]),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()
+});
+
+// Update analysis_results
+export const analysisResults = pgTable('analysis_results', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').references(() => projects.id),
+  topicId: serial('topic_id').references(() => topics.id),
+  results: jsonb('results'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
+}); 
