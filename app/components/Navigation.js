@@ -15,15 +15,26 @@ export default function Navigation() {
   const projectId = params?.projectId;
 
   useEffect(() => {
-    setMounted(true);
-    const allProjects = JSON.parse(localStorage.getItem('projects') || '[]');
-    setProjects(allProjects);
+    const loadProjects = async () => {
+      try {
+        // Fetch all projects from the API
+        const response = await fetch('/api/projects');
+        if (!response.ok) throw new Error('Failed to fetch projects');
+        const allProjects = await response.json();
+        setProjects(allProjects);
 
-    // Load current project details if we have a projectId
-    if (projectId) {
-      const project = allProjects.find(p => p.id === projectId);
-      setCurrentProject(project);
-    }
+        // Set current project if we have a projectId
+        if (projectId) {
+          const currentProj = allProjects.find(p => p.id === projectId);
+          setCurrentProject(currentProj);
+        }
+      } catch (error) {
+        console.error('Error loading projects:', error);
+      }
+    };
+
+    setMounted(true);
+    loadProjects();
   }, [projectId]);
 
   // Prevent flash of incorrect content during hydration

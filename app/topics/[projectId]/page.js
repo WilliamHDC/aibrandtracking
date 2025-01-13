@@ -37,6 +37,13 @@ export default function Setup() {
           setProject(null);
           setTopicsWithQueries({});
         }
+
+        // Check for pending queries from the query generator
+        const pendingQueries = localStorage.getItem('pendingQueries');
+        if (pendingQueries) {
+          setQueries(pendingQueries);
+          localStorage.removeItem('pendingQueries'); // Clear pending queries
+        }
       } catch (error) {
         console.error('Error loading data:', error);
         // Initialize empty state for new projects
@@ -172,8 +179,14 @@ export default function Setup() {
               value={queries}
               onChange={(e) => setQueries(e.target.value)}
               placeholder="Type queries, one per line"
-              className="w-full h-48 bg-[#1E2639] text-gray-200 p-4 rounded-xl focus:ring-2 focus:ring-[#2563EB] outline-none resize-none placeholder-gray-500"
+              className="w-full h-48 bg-[#1E2639] text-gray-200 p-4 rounded-xl focus:ring-2 focus:ring-[#2563EB] outline-none resize-none placeholder-gray-500 mb-4"
             />
+            <button
+              onClick={() => router.push(`/query-generator`)}
+              className="w-full py-3 px-4 rounded-xl bg-[#1E2639] text-gray-300 hover:bg-[#2A3349] transition-colors flex items-center justify-center gap-2"
+            >
+              <span>✨</span> Use AI Query Generator
+            </button>
           </div>
 
           {/* Right Box - Select Topic */}

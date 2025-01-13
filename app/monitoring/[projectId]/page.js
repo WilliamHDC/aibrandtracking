@@ -11,7 +11,8 @@ import {
   Title,
   Tooltip,
   Legend,
-  TimeScale
+  TimeScale,
+  Filler
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 
@@ -30,21 +31,34 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  TimeScale
+  TimeScale,
+  Filler
 );
 
-// Define brand colors OUTSIDE the prepareChartData function
-const brandColors = {
-  'Skansen': {
-    line: 'rgb(255, 159, 64)', // Orange
-    background: 'rgba(255, 159, 64, 0.1)'
+// Define a color palette that will be used in sequence for any brands
+const brandColorPalette = [
+  {
+    line: 'rgb(66, 133, 244)',  // Blue
+    background: 'rgba(66, 133, 244, 0.1)'
   },
-  'Gamla stan': {
-    line: 'rgb(75, 192, 192)', // Teal
-    background: 'rgba(75, 192, 192, 0.1)'
-  }
-  // Add more brand colors as needed
-};
+  {
+    line: 'rgb(234, 67, 53)',   // Red
+    background: 'rgba(234, 67, 53, 0.1)'
+  },
+  {
+    line: 'rgb(251, 188, 4)',   // Yellow
+    background: 'rgba(251, 188, 4, 0.1)'
+  },
+  {
+    line: 'rgb(52, 168, 83)',   // Green
+    background: 'rgba(52, 168, 83, 0.1)'
+  },
+  {
+    line: 'rgb(156, 39, 176)',  // Purple
+    background: 'rgba(156, 39, 176, 0.1)'
+  },
+  // Add more colors if needed
+];
 
 export default function Monitoring() {
   const { projectId } = useParams();
@@ -82,6 +96,11 @@ export default function Monitoring() {
         if (analysisRes.ok) {
           const results = await analysisRes.json();
           if (results) {
+            console.log('Loaded Analysis Results:', {
+              results,
+              hasHistory: !!results.history,
+              historyLength: results.history?.length
+            });
             setAnalysisResults(results);
           }
         }
@@ -183,6 +202,7 @@ export default function Monitoring() {
           ...analysisResults,
           results: results,
           timestamp: new Date().toISOString(),
+          history: analysisResults?.history ? [...analysisResults.history, newAnalysis] : [newAnalysis]
         }),
       });
 
@@ -223,34 +243,120 @@ export default function Monitoring() {
       return Math.round((totalScore / totalQueries * 100) * 10) / 10;
     };
 
-    // ONLY CHANGE: Use the project's primary brand for the header score
+    const calculateTopicComparison = () => {
+      console.log('Calculating comparison for topic:', topic.name, {
+        history: analysisResults?.history,
+        topicId: topic.id
+      });
+
+      if (!analysisResults?.history?.length) {
+        console.log('No history available');
+        return {
+          daily: '0.0',
+          weekly: '0.0'
+        };
+      }
+
+      const sortedHistory = [...analysisResults.history].sort((a, b) => 
+        new Date(b.timestamp) - new Date(a.timestamp)
+      );
+
+      // Get topic-specific scores
+      const getTopicScore = (entry) => {
+        console.log('Getting score from entry:', {
+          entry,
+          topicId: topic.id,
+          results: entry?.results?.[topic.id],
+          brand: currentProject?.brand
+        });
+
+        if (!entry?.results?.[topic.id]) return 0;
+        
+        let totalScore = 0;
+        let totalQueries = 0;
+        
+        const queries = entry.results[topic.id].queries || [];
+        queries.forEach(query => {
+          totalQueries++;
+          const brandMention = query.brandMentions?.find(m => m.name === currentProject?.brand);
+          if (!brandMention?.mentioned) return;
+
+          const position = brandMention.brandPosition;
+          if (position === 1) totalScore += 1.0;
+          else if (position === 2) totalScore += 0.75;
+          else if (position === 3) totalScore += 0.5;
+          else if (position === 4) totalScore += 0.25;
+          else totalScore += 0.1;
+        });
+
+        const score = totalQueries > 0 ? (totalScore / totalQueries) * 100 : 0;
+        console.log('Calculated score:', { totalScore, totalQueries, score });
+        return score;
+      };
+
+      const currentScore = getTopicScore(sortedHistory[0]);
+      const yesterdayScore = sortedHistory[1] ? getTopicScore(sortedHistory[1]) : currentScore;
+
+      const weekAgoIndex = sortedHistory.findIndex(entry => {
+        const entryDate = new Date(entry.timestamp);
+        const currentDate = new Date(sortedHistory[0].timestamp);
+        return currentDate.getTime() - entryDate.getTime() >= 7 * 24 * 60 * 60 * 1000;
+      });
+
+      const weekAgoScore = weekAgoIndex !== -1 ? getTopicScore(sortedHistory[weekAgoIndex]) : currentScore;
+
+      console.log('Scores for', topic.name, {
+        currentScore,
+        yesterdayScore,
+        weekAgoScore
+      });
+
+      // Calculate changes
+      const dailyChange = yesterdayScore !== 0 
+        ? -(((currentScore - yesterdayScore) / yesterdayScore) * 100)
+        : 0;
+      
+      const weeklyChange = weekAgoScore !== 0 
+        ? -(((currentScore - weekAgoScore) / weekAgoScore) * 100)
+        : 0;
+
+      console.log('Changes for', topic.name, {
+        dailyChange,
+        weeklyChange
+      });
+
+      return {
+        daily: isFinite(dailyChange) ? dailyChange.toFixed(1) : '0.0',
+        weekly: isFinite(weeklyChange) ? weeklyChange.toFixed(1) : '0.0'
+      };
+    };
+
     const mainBrandVisibility = calculateVisibility(currentProject.brand);
+    const comparison = calculateTopicComparison();
 
     return (
       <div className="bg-[#1F2A40] p-6 rounded-lg">
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <h3 className="text-2xl font-bold mb-1">{mainBrandVisibility}%</h3>
-            <p className="text-gray-400">{topic.name}</p>
-          </div>
-          <div className="text-sm text-gray-400">
-            {analysisResults?.results?.[topic.id]?.queries?.length || 0} queries
-          </div>
+        <div className="flex justify-between items-start mb-4">
+          <h3 className="text-lg font-semibold">{topic.name}</h3>
+          <span className="text-2xl font-bold">{mainBrandVisibility}%</span>
         </div>
-        
-        <div className="space-y-4">
-          {currentProject?.brands?.map(brandName => (
-            <div key={brandName} className="flex items-center">
-              <span className="w-24 text-sm">{brandName}</span>
-              <div className="flex-1 mx-4">
-                <div className="h-2 bg-[#2a3447] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500"
-                    style={{ width: `${calculateVisibility(brandName)}%` }}
-                  />
-                </div>
-              </div>
-              <span className="text-sm">{calculateVisibility(brandName)}%</span>
+        <div className="text-sm text-gray-400 mb-4">
+          <span className={comparison.weekly === '0.0' ? 'text-gray-400' : 
+            Number(comparison.weekly) >= 0 ? 'text-green-500' : 'text-red-500'}>
+            {comparison.weekly}% vs last week
+          </span>
+          <span className="ml-2">(
+            <span className={comparison.daily === '0.0' ? 'text-gray-400' : 
+              Number(comparison.daily) >= 0 ? 'text-green-500' : 'text-red-500'}>
+              {comparison.daily}%
+            </span> vs yesterday)
+          </span>
+        </div>
+        <div className="space-y-2">
+          {currentProject?.competitors?.map((competitor, index) => (
+            <div key={competitor} className="flex justify-between items-center text-sm">
+              <span className="text-gray-400">{competitor}</span>
+              <span>{calculateVisibility(competitor)}%</span>
             </div>
           ))}
         </div>
@@ -259,43 +365,27 @@ export default function Monitoring() {
   };
 
   const prepareChartData = () => {
-    if (!analysisResults?.history?.length) return {
-      labels: [],
-      datasets: []
-    };
+    if (!analysisResults?.history?.length) return { datasets: [] };
 
-    const labels = analysisResults.history.map(entry => 
-      new Date(entry.timestamp)
+    // Log the data we're working with
+    console.log('Chart Data:', {
+      historyLength: analysisResults.history.length,
+      dates: analysisResults.history.map(h => new Date(h.timestamp).toISOString().split('T')[0])
+    });
+
+    const sortedHistory = [...analysisResults.history].sort((a, b) => 
+      new Date(a.timestamp) - new Date(b.timestamp)
     );
 
-    const datasets = currentProject?.brands?.map(brandName => {
-      const brandColor = brandColors[brandName] || {
-        line: 'rgb(65, 105, 225)',
-        background: 'rgba(65, 105, 225, 0.1)'
-      };
+    // Create datasets for each brand
+    const datasets = currentProject?.brands?.map((brandName, index) => {
+      const colorIndex = index % brandColorPalette.length;
+      const brandColor = brandColorPalette[colorIndex];
 
-      const data = analysisResults.history.map(historyEntry => {
-        let totalScore = 0;
-        let totalQueries = 0;
-
-        // Calculate visibility score for each historical entry
-        Object.values(historyEntry.results || {}).forEach(topicData => {
-          topicData.queries.forEach(query => {
-            totalQueries++;
-            const brandMention = query.brandMentions?.find(m => m.name === brandName);
-            if (!brandMention?.mentioned) return;
-
-            const position = brandMention.brandPosition;
-            if (position === 1) totalScore += 1.0;
-            else if (position === 2) totalScore += 0.75;
-            else if (position === 3) totalScore += 0.5;
-            else if (position === 4) totalScore += 0.25;
-            else totalScore += 0.1;
-          });
-        });
-
-        return totalQueries > 0 ? Math.round((totalScore / totalQueries * 100) * 10) / 10 : 0;
-      });
+      const data = sortedHistory.map(entry => ({
+        x: new Date(entry.timestamp),
+        y: calculateBrandScore(brandName, entry)
+      }));
 
       return {
         label: brandName,
@@ -308,10 +398,7 @@ export default function Monitoring() {
       };
     }) || [];
 
-    return {
-      labels,
-      datasets
-    };
+    return { datasets };
   };
 
   const chartOptions = {
@@ -439,7 +526,7 @@ export default function Monitoring() {
 
   const calculateComparison = () => {
     if (!analysisResults?.history?.length) {
-      console.log('No history data available');
+      console.log('No history data available yet - first analysis will establish baseline');
       return {
         daily: 0,
         weekly: 0
@@ -503,19 +590,27 @@ export default function Monitoring() {
       return currentDate.getTime() - entryDate.getTime() >= 7 * 24 * 60 * 60 * 1000;
     });
     
-    console.log('Indices:', { weekAgoIndex });
     const weekAgoScore = weekAgoIndex !== -1 ? getAverageScore(sortedHistory[weekAgoIndex]) : currentScore;
 
-    console.log('Scores:', { currentScore, yesterdayScore, weekAgoScore });
+    console.log('Raw Scores:', {
+      current: currentScore,
+      yesterday: yesterdayScore,
+      weekAgo: weekAgoScore
+    });
 
-    const dailyChange = yesterdayScore !== 0 ? ((currentScore - yesterdayScore) / yesterdayScore * 100) : 0;
-    const weeklyChange = weekAgoScore !== 0 ? ((currentScore - weekAgoScore) / weekAgoScore * 100) : 0;
+    // Invert the sign to show decrease as negative
+    const dailyChange = -(((currentScore - yesterdayScore) / yesterdayScore) * 100);
+    const weeklyChange = -(((currentScore - weekAgoScore) / weekAgoScore) * 100);
 
-    console.log('Changes:', { dailyChange, weeklyChange });
+    console.log('Calculated Changes:', {
+      daily: dailyChange,
+      weekly: weeklyChange,
+      calculation: `-(${currentScore} - ${yesterdayScore}) / ${yesterdayScore} * 100 = ${dailyChange}`
+    });
 
     return {
-      daily: dailyChange.toFixed(1),
-      weekly: weeklyChange.toFixed(1)
+      daily: isFinite(dailyChange) ? dailyChange.toFixed(1) : '0.0',
+      weekly: isFinite(weeklyChange) ? weeklyChange.toFixed(1) : '0.0'
     };
   };
 
@@ -552,8 +647,16 @@ export default function Monitoring() {
                   <div>
                     <h2 className="text-xl font-semibold mb-1">Overall Visibility Score</h2>
                     <div className="text-gray-400">
-                      {calculateComparison().weekly}% vs last week
-                      <span className="ml-2">({calculateComparison().daily}% vs yesterday)</span>
+                      <span className={calculateComparison().weekly === '0.0' ? 'text-gray-400' : 
+                        Number(calculateComparison().weekly) >= 0 ? 'text-green-500' : 'text-red-500'}>
+                        {calculateComparison().weekly}% vs last week
+                      </span>
+                      <span className="ml-2">(
+                        <span className={calculateComparison().daily === '0.0' ? 'text-gray-400' : 
+                          Number(calculateComparison().daily) >= 0 ? 'text-green-500' : 'text-red-500'}>
+                          {calculateComparison().daily}%
+                        </span> vs yesterday)
+                      </span>
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">

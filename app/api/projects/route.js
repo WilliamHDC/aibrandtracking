@@ -21,8 +21,12 @@ export async function GET() {
     const testResult = await pool.query('SELECT NOW()');
     console.log('Database connection test successful:', testResult.rows[0]);
     
-    // If we get here, the connection works, so try to get projects
-    const { rows } = await pool.query('SELECT * FROM projects');
+    // Only select fields needed for navigation
+    const { rows } = await pool.query(`
+      SELECT id, name, brand 
+      FROM projects 
+      ORDER BY name ASC`
+    );
     console.log('Projects query successful, row count:', rows.length);
     
     return NextResponse.json(rows);
