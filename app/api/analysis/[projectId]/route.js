@@ -27,30 +27,57 @@ export async function POST(req, { params }) {
     });
     
     const timestamp = new Date().toISOString();
+    const today = new Date().toISOString().split('T')[0];
 
-    // Always create a new record instead of potentially overwriting
-    const { rows } = await pool.query(`
-      INSERT INTO analysis_results (
-        id,
-        project_id,
-        results,
-        data,
-        timestamp,
-        created_at
-      ) VALUES ($1, $2, $3, $4, $5, NOW())
+    // First, try to update existing record for today
+    const { rows: existingRows } = await pool.query(`
+      UPDATE analysis_results 
+      SET results = $1, 
+          data = $2, 
+          timestamp = $3,
+          created_at = NOW()
+      WHERE project_id = $4 
+      AND DATE(created_at) = DATE($5)
       RETURNING *
     `, [
-      uuidv4(), // Generate a new unique ID for each analysis
-      projectId,
       JSON.stringify(data.results || {}),
       JSON.stringify(brandData),
-      timestamp
+      timestamp,
+      projectId,
+      today
     ]);
 
-    console.log('Insert successful:', rows[0]);
-    
+    // If no existing record was updated, create a new one
+    if (existingRows.length === 0) {
+      const { rows } = await pool.query(`
+        INSERT INTO analysis_results (
+          id,
+          project_id,
+          results,
+          data,
+          timestamp,
+          created_at
+        ) VALUES ($1, $2, $3, $4, $5, NOW())
+        RETURNING *
+      `, [
+        uuidv4(),
+        projectId,
+        JSON.stringify(data.results || {}),
+        JSON.stringify(brandData),
+        timestamp
+      ]);
+
+      console.log('Insert successful:', rows[0]);
+      return NextResponse.json({
+        ...rows[0],
+        data: brandData,
+        timestamp
+      });
+    }
+
+    console.log('Update successful:', existingRows[0]);
     return NextResponse.json({
-      ...rows[0],
+      ...existingRows[0],
       data: brandData,
       timestamp
     });

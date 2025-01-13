@@ -175,8 +175,8 @@ export default function Monitoring() {
 
       console.log('Analysis completed. Results:', results);
 
-      // When saving, check if we already have an entry for today
-      const today = new Date().toISOString().split('T')[0]; // Get just the date part 'YYYY-MM-DD'
+      // When saving, ensure only one entry per date
+      const today = new Date().toISOString().split('T')[0];
       
       // Create new analysis entry
       const newAnalysis = {
@@ -184,13 +184,15 @@ export default function Monitoring() {
         timestamp: new Date().toISOString()
       };
 
-      // If we have history, filter out any previous entry from today before saving
-      if (analysisResults?.history) {
-        analysisResults.history = analysisResults.history.filter(entry => {
-          const entryDate = new Date(entry.timestamp).toISOString().split('T')[0];
-          return entryDate !== today;
-        });
-      }
+      // Filter history to remove any entries from today
+      let updatedHistory = analysisResults?.history || [];
+      updatedHistory = updatedHistory.filter(entry => {
+        const entryDate = new Date(entry.timestamp).toISOString().split('T')[0];
+        return entryDate !== today;
+      });
+
+      // Add the new analysis
+      updatedHistory.push(newAnalysis);
 
       // Save analysis results to database
       const saveResponse = await fetch(`/api/analysis/${projectId}`, {
@@ -202,7 +204,7 @@ export default function Monitoring() {
           ...analysisResults,
           results: results,
           timestamp: new Date().toISOString(),
-          history: analysisResults?.history ? [...analysisResults.history, newAnalysis] : [newAnalysis]
+          history: updatedHistory
         }),
       });
 
