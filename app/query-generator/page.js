@@ -1,9 +1,10 @@
 "use client"
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 
 export default function QueryGenerator() {
   const router = useRouter();
+  const pathname = usePathname();
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [keywords, setKeywords] = useState([]);
@@ -12,18 +13,20 @@ export default function QueryGenerator() {
   const [selectedQueries, setSelectedQueries] = useState(new Set());
   const [selectedLanguage, setSelectedLanguage] = useState('en');
 
+  const fetchProjects = async () => {
+    try {
+      const response = await fetch('/api/projects');
+      const data = await response.json();
+      setProjects(data);
+    } catch (error) {
+      console.error('Error fetching projects:', error);
+    }
+  };
+
   useEffect(() => {
-    const fetchProjects = async () => {
-      try {
-        const response = await fetch('/api/projects');
-        const data = await response.json();
-        setProjects(data);
-      } catch (error) {
-        console.error('Error fetching projects:', error);
-      }
-    };
+    // Fetch projects whenever the page is visited
     fetchProjects();
-  }, []);
+  }, [pathname]); // Re-run when pathname changes
 
   const handleProjectSelect = (projectId) => {
     const project = projects.find(p => p.id === projectId);
