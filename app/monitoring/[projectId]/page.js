@@ -369,12 +369,7 @@ export default function Monitoring() {
   const prepareChartData = () => {
     if (!analysisResults?.history?.length) return { datasets: [] };
 
-    // Log the data we're working with
-    console.log('Chart Data:', {
-      historyLength: analysisResults.history.length,
-      dates: analysisResults.history.map(h => new Date(h.timestamp).toISOString().split('T')[0])
-    });
-
+    // Sort history by date
     const sortedHistory = [...analysisResults.history].sort((a, b) => 
       new Date(a.timestamp) - new Date(b.timestamp)
     );
@@ -384,10 +379,35 @@ export default function Monitoring() {
       const colorIndex = index % brandColorPalette.length;
       const brandColor = brandColorPalette[colorIndex];
 
-      const data = sortedHistory.map(entry => ({
-        x: new Date(entry.timestamp),
-        y: calculateBrandScore(brandName, entry)
-      }));
+      const data = sortedHistory.map(entry => {
+        let totalScore = 0;
+        let totalQueries = 0;
+
+        Object.values(entry.results).forEach(topicData => {
+          topicData.queries.forEach(query => {
+            totalQueries++;
+            const brandMention = query.brandMentions?.find(m => m.name === brandName);
+            if (!brandMention?.mentioned) return;
+
+            const position = brandMention.brandPosition;
+            if (position === 1) totalScore += 1.0;
+            else if (position === 2) totalScore += 0.75;
+            else if (position === 3) totalScore += 0.5;
+            else if (position === 4) totalScore += 0.25;
+            else totalScore += 0.1;
+          });
+        });
+
+        // Round to 1 decimal place
+        const score = totalQueries > 0 ? 
+          Math.round((totalScore / totalQueries * 100) * 10) / 10 : 
+          0;
+
+        return {
+          x: new Date(entry.timestamp),
+          y: score
+        };
+      });
 
       return {
         label: brandName,
@@ -528,91 +548,28 @@ export default function Monitoring() {
 
   const calculateComparison = () => {
     if (!analysisResults?.history?.length) {
-      console.log('No history data available yet - first analysis will establish baseline');
-      return {
-        daily: 0,
-        weekly: 0
-      };
+      return { daily: '0.0', weekly: '0.0' };
     }
 
     const sortedHistory = [...analysisResults.history].sort((a, b) => 
       new Date(b.timestamp) - new Date(a.timestamp)
     );
-    
-    console.log('Sorted History:', sortedHistory.map(h => ({
-      timestamp: h.timestamp,
-      results: Object.keys(h.results || {}).length
-    })));
 
-    // Calculate average visibility score for all brands
-    const getAverageScore = (entry) => {
-      if (!entry?.results || !currentProject?.brands) {
-        console.log('Missing results or brands:', { 
-          hasResults: !!entry?.results, 
-          brands: currentProject?.brands 
-        });
-        return 0;
-      }
-      
-      const brandScores = currentProject.brands.map(brandName => {
-        let totalScore = 0;
-        let totalQueries = 0;
+    // Calculate the current score directly
+    const currentScore = calculateBrandScore(sortedHistory[0]);  // Use existing calculateBrandScore function
+    const yesterdayScore = sortedHistory[1] ? calculateBrandScore(sortedHistory[1]) : currentScore;
 
-        Object.values(entry.results).forEach(topicData => {
-          topicData.queries.forEach(query => {
-            totalQueries++;
-            const brandMention = query.brandMentions?.find(m => m.name === brandName);
-            if (!brandMention?.mentioned) return;
+    // If scores are identical, return 0
+    if (currentScore === yesterdayScore) {
+      return { daily: '0.0', weekly: '0.0' };
+    }
 
-            const position = brandMention.brandPosition;
-            if (position === 1) totalScore += 1.0;
-            else if (position === 2) totalScore += 0.75;
-            else if (position === 3) totalScore += 0.5;
-            else if (position === 4) totalScore += 0.25;
-            else totalScore += 0.1;
-          });
-        });
-
-        const score = totalQueries > 0 ? (totalScore / totalQueries) * 100 : 0;
-        console.log(`Score for ${brandName}:`, { totalScore, totalQueries, score });
-        return score;
-      });
-
-      const avgScore = brandScores.reduce((sum, score) => sum + score, 0) / brandScores.length;
-      console.log('Average score:', avgScore);
-      return avgScore;
-    };
-
-    const currentScore = getAverageScore(sortedHistory[0]);
-    const yesterdayScore = sortedHistory[1] ? getAverageScore(sortedHistory[1]) : currentScore;
-    
-    const weekAgoIndex = sortedHistory.findIndex(entry => {
-      const entryDate = new Date(entry.timestamp);
-      const currentDate = new Date(sortedHistory[0].timestamp);
-      return currentDate.getTime() - entryDate.getTime() >= 7 * 24 * 60 * 60 * 1000;
-    });
-    
-    const weekAgoScore = weekAgoIndex !== -1 ? getAverageScore(sortedHistory[weekAgoIndex]) : currentScore;
-
-    console.log('Raw Scores:', {
-      current: currentScore,
-      yesterday: yesterdayScore,
-      weekAgo: weekAgoScore
-    });
-
-    // Invert the sign to show decrease as negative
-    const dailyChange = -(((currentScore - yesterdayScore) / yesterdayScore) * 100);
-    const weeklyChange = -(((currentScore - weekAgoScore) / weekAgoScore) * 100);
-
-    console.log('Calculated Changes:', {
-      daily: dailyChange,
-      weekly: weeklyChange,
-      calculation: `-(${currentScore} - ${yesterdayScore}) / ${yesterdayScore} * 100 = ${dailyChange}`
-    });
+    // Calculate percentage change
+    const dailyChange = ((currentScore - yesterdayScore) / yesterdayScore) * 100;
 
     return {
-      daily: isFinite(dailyChange) ? dailyChange.toFixed(1) : '0.0',
-      weekly: isFinite(weeklyChange) ? weeklyChange.toFixed(1) : '0.0'
+      daily: dailyChange.toFixed(1),
+      weekly: '0.0'
     };
   };
 
@@ -647,7 +604,24 @@ export default function Monitoring() {
               <div className="bg-[#1c2333] rounded-lg p-6 mb-8">
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h2 className="text-xl font-semibold mb-1">Overall Visibility Score</h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-semibold">Overall Visibility Score</h2>
+                      <div className="relative group">
+                        <span className="cursor-help text-gray-400 hover:text-gray-300">ⓘ</span>
+                        <div className="absolute left-0 top-full mt-2 hidden group-hover:block w-80 p-4 bg-[#1F2A40] rounded-lg shadow-lg text-sm text-gray-300 z-10">
+                          <p className="mb-3">The visibility score is calculated based on brand mentions across all topics and their queries:</p>
+                          <p className="mb-2">When a brand is mentioned:</p>
+                          <ul className="space-y-2">
+                            <li>• First in the response: 100% score</li>
+                            <li>• Second in the response: 75% score</li>
+                            <li>• Third in the response: 50% score</li>
+                            <li>• Fourth in the response: 25% score</li>
+                            <li>• Later in the response: 10% score</li>
+                          </ul>
+                          <p className="mt-3">The final score is the average of all responses where the brand is mentioned, calculated across all topics and their associated queries.</p>
+                        </div>
+                      </div>
+                    </div>
                     <div className="text-gray-400">
                       <span className={calculateComparison().weekly === '0.0' ? 'text-gray-400' : 
                         Number(calculateComparison().weekly) >= 0 ? 'text-green-500' : 'text-red-500'}>
