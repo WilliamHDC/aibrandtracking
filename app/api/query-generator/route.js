@@ -57,30 +57,41 @@ export async function POST(req) {
       messages: [
         {
           role: "system",
-          content: `You are a multilingual search expert who generates valid JSON responses. Always ensure your response is properly formatted JSON.`
+          content: "You are a search query generator. You MUST respond with ONLY valid JSON, no additional text or explanations."
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      temperature: 0.7  // Reduced for more consistent formatting
+      temperature: 0.5,  // Lower temperature for more consistent output
     });
 
     const responseText = completion.choices[0].message.content;
-    console.log('OpenAI raw response:', responseText);
     
-    // Try to clean the response before parsing
-    const cleanedResponse = responseText.trim();
-    
+    // Validate that the response starts with a curly brace
+    if (!responseText.trim().startsWith('{')) {
+      console.error('Invalid response format:', responseText);
+      return NextResponse.json(
+        { error: 'Received invalid response format from AI' },
+        { status: 500 }
+      );
+    }
+
     try {
-      const queries = JSON.parse(cleanedResponse);
+      const queries = JSON.parse(responseText.trim());
+      
+      // Validate the structure of the parsed JSON
+      if (typeof queries !== 'object' || queries === null) {
+        throw new Error('Response is not an object');
+      }
+
       return NextResponse.json(queries);
     } catch (parseError) {
       console.error('JSON Parse Error:', parseError);
-      console.error('Raw Response:', cleanedResponse);
+      console.error('Raw Response:', responseText);
       return NextResponse.json(
-        { error: 'Failed to parse AI response' },
+        { error: 'Failed to parse AI response into valid JSON' },
         { status: 500 }
       );
     }
