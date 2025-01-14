@@ -28,25 +28,28 @@ export async function POST(req) {
                 language === 'da' ? 'Danish' :
                 language === 'fi' ? 'Finnish' : 'English'}
 
-      For each keyword, generate 8-10 detailed, brand-neutral queries that:
+      RESPONSE FORMAT:
+      Return a valid JSON object where each keyword is a property and its value is an array of queries.
+      Example format:
+      {
+        "keyword1": ["query1", "query2", "query3"],
+        "keyword2": ["query1", "query2", "query3"]
+      }
+
+      For each keyword, generate 5-7 detailed, brand-neutral queries that:
       1. Address specific user problems and pain points
       2. Compare features and capabilities
       3. Ask about real-world performance and experiences
-      4. Seek technical specifications and details
-      5. Focus on specific use cases and scenarios
-      6. Question durability and reliability
-      7. Explore value for money
+      4. Focus on specific use cases
+      5. Question durability and value
 
       IMPORTANT RULES:
       - Generate ALL queries in the specified language
-      - DO NOT include any brand names in the queries
-      - DO NOT mention competitors in the queries
+      - DO NOT include any brand names
+      - DO NOT mention competitors
       - Focus on generic, problem-focused searches
-      - Use industry-standard terminology
-      - Think about what users would search before knowing specific brands
-      - Use natural language patterns common in the specified language
-
-      Format the response as a JSON object where each keyword is a key and its value is an array of brand-neutral queries.
+      - Use natural language patterns for the specified language
+      - ENSURE response is valid JSON format
     `;
 
     const completion = await openai.chat.completions.create({
@@ -54,28 +57,36 @@ export async function POST(req) {
       messages: [
         {
           role: "system",
-          content: `You are a multilingual search behavior expert. Generate brand-neutral queries in ${language === 'en' ? 'English' : 
-            language === 'sv' ? 'Swedish' :
-            language === 'no' ? 'Norwegian' :
-            language === 'da' ? 'Danish' :
-            language === 'fi' ? 'Finnish' : 'English'} that will help discover where brands appear naturally in search results.`
+          content: `You are a multilingual search expert who generates valid JSON responses. Always ensure your response is properly formatted JSON.`
         },
         {
           role: "user",
           content: prompt
         }
       ],
-      temperature: 0.8
+      temperature: 0.7  // Reduced for more consistent formatting
     });
 
     const responseText = completion.choices[0].message.content;
     console.log('OpenAI raw response:', responseText);
     
-    const queries = JSON.parse(responseText);
-    return NextResponse.json(queries);
+    // Try to clean the response before parsing
+    const cleanedResponse = responseText.trim();
+    
+    try {
+      const queries = JSON.parse(cleanedResponse);
+      return NextResponse.json(queries);
+    } catch (parseError) {
+      console.error('JSON Parse Error:', parseError);
+      console.error('Raw Response:', cleanedResponse);
+      return NextResponse.json(
+        { error: 'Failed to parse AI response' },
+        { status: 500 }
+      );
+    }
 
   } catch (error) {
-    console.error('Detailed error:', error);
+    console.error('API Error:', error);
     return NextResponse.json(
       { error: error.message || 'Failed to generate queries' },
       { status: 500 }
